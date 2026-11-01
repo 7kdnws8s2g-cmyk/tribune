@@ -1,0 +1,15 @@
+{
+  "name": "tribune",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Tribune : le football mondial en direct, notifications push et design liquid glass. Aucune dépendance.",
+  "type": "module",
+  "main": "server/index.js",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node --test test/*.test.js"
+  }
+}
