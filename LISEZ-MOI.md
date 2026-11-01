@@ -17,13 +17,9 @@ Puis ouvre http://localhost:3000. Pour vérifier que tout marche : `npm test` (8
 Les notifications push exigent une adresse en **https** et un serveur qui tourne en continu. Le plus simple : **Render**.
 
 1. Mets ce dossier sur GitHub (nouveau dépôt, envoie tous les fichiers).
-2. Génère tes clés de notification une fois pour toutes :
-   ```bash
-   node -e "import('./server/webpush.js').then(m => console.log(m.generateVAPIDKeys()))"
-   ```
-3. Sur render.com : **New → Blueprint**, choisis ton dépôt. Le fichier `render.yaml` configure tout.
-4. Renseigne `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (étape 2) et ton adresse dans `VAPID_SUBJECT`.
-5. Render te donne une adresse `https://tribune-xxxx.onrender.com`.
+2. Sur render.com : **New → Blueprint**, choisis ton dépôt. Le fichier `render.yaml` configure tout.
+3. Les clés des notifications sont créées automatiquement au premier démarrage et gardées sur le disque du serveur. Tu peux aussi fixer `VAPID_PUBLIC_KEY` et `VAPID_PRIVATE_KEY` toi-même (commande : `node -e "import('./server/webpush.js').then(m => console.log(m.generateVAPIDKeys()))"`).
+4. Render te donne une adresse `https://tribune-xxxx.onrender.com`.
 
 Important : une offre gratuite qui « s'endort » après inactivité arrête aussi la surveillance des matchs, donc les notifications. Prends une offre toujours active (le `render.yaml` demande l'offre *starter* avec un disque pour garder les abonnements). Tout hébergeur Node convient (Railway, Fly.io, un VPS).
 

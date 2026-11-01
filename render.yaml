@@ -3,16 +3,10 @@ services:
     name: tribune
     runtime: node
     plan: starter
-    buildCommand: echo "Aucune dépendance à installer"
+    buildCommand: echo "Aucune dependance a installer"
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: VAPID_SUBJECT
-        value: mailto:toi@exemple.fr
-      - key: VAPID_PUBLIC_KEY
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
       - key: DATA_DIR
         value: /var/data
     disk:
