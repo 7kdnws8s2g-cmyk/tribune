@@ -1,6 +1,7 @@
 // Serveur Tribune : sert l'application, relaie l'API ESPN avec cache, et envoie les notifications push.
 import http from "node:http";
 import fs from "node:fs";
+import os from "node:os";
 import { generateVAPIDKeys, sendNotification } from "./webpush.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,10 +10,16 @@ import { findComp } from "../public/catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const DATA = process.env.DATA_DIR || path.join(ROOT, "data");
+// Dossier de données : celui demandé (disque Render), sinon un dossier local si celui-ci n'est pas accessible
+function pickDataDir() {
+  for (const dir of [process.env.DATA_DIR, path.join(ROOT, "data"), path.join(os.tmpdir(), "tribune-data")].filter(Boolean)) {
+    try { fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); return dir; } catch { /* suivant */ }
+  }
+  throw new Error("Aucun dossier inscriptible pour les données");
+}
+const DATA = pickDataDir();
 const PORT = Number(process.env.PORT) || 3000;
 const POLL_MS = Number(process.env.POLL_MS) || 5000;
-fs.mkdirSync(DATA, { recursive: true });
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -293,4 +300,4 @@ async function poll() {
 setInterval(poll, POLL_MS);
 setInterval(() => { if (state.size > 5000) state.clear(); if (subsDone.size > 20000) subsDone.clear(); }, 3600e3);
 
-server.listen(PORT, () => log(`Tribune en ligne sur http://localhost:${PORT} · surveillance toutes les ${POLL_MS / 1000} s`));
+server.listen(PORT, "0.0.0.0", () => log(`Tribune en ligne sur http://localhost:${PORT} · surveillance toutes les ${POLL_MS / 1000} s`));
