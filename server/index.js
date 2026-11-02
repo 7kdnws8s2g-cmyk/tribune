@@ -3,6 +3,7 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import { generateVAPIDKeys, sendNotification } from "./webpush.js";
+import * as AF from "./apifootball.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { snapshot, diffEvents, isRelevant, DEFAULT_PREFS, sides } from "../public/detect.js";
@@ -19,7 +20,7 @@ function pickDataDir() {
 }
 const DATA = pickDataDir();
 const PORT = Number(process.env.PORT) || 3000;
-const POLL_MS = Number(process.env.POLL_MS) || 5000;
+const POLL_MS = Number(process.env.POLL_MS) || (AF.enabled() ? 20000 : 5000); // API-Football : quota partagé, 20 s suffisent
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 
@@ -76,6 +77,14 @@ async function espn(host, pathAndQuery, { fresh = false } = {}) {
   return entry;
 }
 const espnJSON = async (host, p) => { const e = await espn(host, p); if (e.status >= 400) throw new Error(`ESPN ${e.status}`); return JSON.parse(e.body); };
+// Source des données : API-Football si une clé est configurée, sinon ESPN
+async function dataJSON(p, { fresh = false } = {}) {
+  const a = await AF.handle(p);
+  if (a) { if (a.code) throw new Error("Introuvable"); return a; }
+  const e = await espn("site", p, { fresh });
+  if (e.status >= 400) throw new Error(`ESPN ${e.status}`);
+  return JSON.parse(e.body);
+}
 
 /* ---------- Application HTTP (sans framework) ---------- */
 const PUBLIC = path.join(ROOT, "public");
@@ -123,11 +132,17 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const p = url.pathname;
   try {
-    if (p === "/api/health") return sendJSON(res, 200, { ok: true, push: true, subscribers: subs.size, pollMs: POLL_MS });
+    if (p === "/api/health") return sendJSON(res, 200, { ok: true, push: true, subscribers: subs.size, pollMs: POLL_MS, source: AF.enabled() ? "API-Football" : "ESPN", quota: AF.enabled() ? AF.quota : null });
 
     const m = p.match(/^\/espn\/(site|web)(\/apis\/[A-Za-z0-9_\-./]*)$/);
     if (m && req.method === "GET") {
       try {
+        const a = await AF.handle(m[2] + url.search).catch(err => ({ error: String(err.message || err) }));
+        if (a) {
+          if (a.error) return sendJSON(res, 502, { error: a.error });
+          if (a.code) return sendJSON(res, 404, { error: "Introuvable" });
+          return sendJSON(res, 200, a, { "Cache-Control": "no-cache" });
+        }
         const e = await espn(m[1], m[2] + url.search);
         return sendJSON(res, e.status, e.body, { "Cache-Control": `public, max-age=${Math.round(e.ttl / 1000)}` });
       } catch (err) {
@@ -234,7 +249,7 @@ function dispatch(events, extraFilter) {
 async function enrichAssist(lg, e) {
   // Le tableau de scores donne le buteur ; le résumé du match donne aussi le passeur.
   try {
-    const sum = await espnJSON("site", `/apis/site/v2/sports/${lg.s}/${lg.l}/summary?event=${e.matchId}`);
+    const sum = await dataJSON(`/apis/site/v2/sports/${lg.s}/${lg.l}/summary?event=${e.matchId}`);
     const k = (sum.keyEvents || []).filter(x => x.scoringPlay).find(x => !e.clock || x.clock?.displayValue === e.clock) ;
     const parts = (k?.participants || []).map(p => p.athlete?.displayName).filter(Boolean);
     if (parts[1] && e.playerIds.length) e.body = e.body.replace(" · ", ` (passe de ${parts[1]}) · `);
@@ -252,7 +267,7 @@ async function checkSummaries(lg, ev) {
   const live = snap.state === "in";
   if (!(pre && !lineupDone.has(snap.id)) && !live) return;
   let sum;
-  try { sum = await espnJSON("site", `/apis/site/v2/sports/${lg.s}/${lg.l}/summary?event=${snap.id}`); } catch { return; }
+  try { sum = await dataJSON(`/apis/site/v2/sports/${lg.s}/${lg.l}/summary?event=${snap.id}`); } catch { return; }
   const base = { matchId: snap.id, teamIds: [snap.hId, snap.aId], league: lg.l, sport: lg.s, playerIds: [] };
   if (pre && !lineupDone.has(snap.id) && (sum.rosters || []).some(r => (r.roster || []).length)) {
     lineupDone.add(snap.id);
@@ -280,7 +295,7 @@ async function poll() {
   try {
     for (const lg of watchedLeagues()) {
       let data;
-      try { data = JSON.parse((await espn("site", `/apis/site/v2/sports/${lg.s}/${lg.l}/scoreboard`, { fresh: true })).body); }
+      try { data = await dataJSON(`/apis/site/v2/sports/${lg.s}/${lg.l}/scoreboard`, { fresh: true }); }
       catch { continue; }
       const league = findComp(lg.s, lg.l) || { ...lg, n: lg.l };
       for (const ev of data.events || []) {
@@ -300,4 +315,4 @@ async function poll() {
 setInterval(poll, POLL_MS);
 setInterval(() => { if (state.size > 5000) state.clear(); if (subsDone.size > 20000) subsDone.clear(); }, 3600e3);
 
-server.listen(PORT, "0.0.0.0", () => log(`Tribune en ligne sur http://localhost:${PORT} · surveillance toutes les ${POLL_MS / 1000} s`));
+server.listen(PORT, "0.0.0.0", () => log(`Tribune en ligne sur http://localhost:${PORT} · source ${AF.enabled() ? "API-Football" : "ESPN"} · surveillance toutes les ${POLL_MS / 1000} s`));

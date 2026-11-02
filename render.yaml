@@ -2,14 +2,10 @@ services:
   - type: web
     name: tribune
     runtime: node
-    plan: starter
+    plan: free
     buildCommand: echo "Aucune dependance a installer"
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
-      - key: DATA_DIR
-        value: /var/data
-    disk:
-      name: tribune-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: APIFOOTBALL_KEY
+        sync: false

@@ -101,7 +101,8 @@ function notePlayer(a, s, l, team) {
 
 /* ====================== Données (ESPN) ====================== */
 let PROXY = false;      // vrai quand le serveur Tribune répond : relais + cache + push
-let DEMO = false;       // vrai quand aucune source réelle n'est joignable : données fictives
+let DEMO = false;
+let SOURCE = "ESPN";       // vrai quand aucune source réelle n'est joignable : données fictives
 const HOST = { site: "https://site.api.espn.com", web: "https://site.web.api.espn.com" };
 const mem = new Map();
 const liveIds = new Set();
@@ -589,7 +590,7 @@ async function newsInto(c, body, my) {
 async function resolveTeamLeague(s, id) {
   const known = idx.t[id]?.l;
   const tries = [...new Set([known, ...LIVE_LEAGUES.filter(c => c.s === s).map(c => c.l)].filter(Boolean))].slice(0, 14);
-  for (const l of tries) { try { const d = await API.team(s, l, id); if (d?.team?.id) return { l, d }; } catch { /* suivant */ } }
+  for (const l of tries) { try { const d = await API.team(s, l, id); if (d?.team?.id) return { l: d.team.defaultLeagueSlug || l, d }; } catch { /* suivant */ } }
   throw new Error("Club introuvable");
 }
 const POS_FR = { goalkeeper: "Gardien", defender: "Défenseur", midfielder: "Milieu", forward: "Attaquant", "center back": "Défenseur central", "centre-back": "Défenseur central", "left back": "Latéral gauche", "right back": "Latéral droit", "defensive midfielder": "Milieu défensif", "attacking midfielder": "Milieu offensif", "central midfielder": "Milieu central", "left wing": "Ailier gauche", "right wing": "Ailier droit", winger: "Ailier", striker: "Avant-centre", "center forward": "Avant-centre" };
@@ -615,7 +616,7 @@ async function renderTeam(s, l, id, tab) {
   const c = findComp(s, l);
   setChrome(null, t.shortDisplayName || t.displayName);
   clubSky(t.color, t.alternateColor);
-  const payload = { id: String(t.id), s, l, name: t.displayName, logo: t.logos?.[0]?.href || "", nat: isNat(t) || /nations|worldq|friendly|^fifa\.world$|euro$|america$|caf\.nations/.test(l) };
+  const payload = { id: String(t.id), s, l, name: t.displayName, logo: t.logos?.[0]?.href || "", nat: !!t.national || isNat(t) || /nations|worldq|friendly|^fifa\.world$|euro$|america$|caf\.nations/.test(l) };
   const base = `#/team/${s}/${l}/${id}`;
   view().innerHTML = `
     <section class="ent glass"><span class="big">${logo(t)}</span><div class="grow"><h1 class="ellip">${esc(t.displayName)}</h1><span class="muted ellip" style="display:block">${esc(t.standingSummary || (c ? c.n : ""))}</span></div>${followBtn("teams", payload, isFav("teams", t.id))}</section>
@@ -704,6 +705,21 @@ function pickMetrics(cat) {
   if (p >= 0) return [[p, cat.labels[p] || "Points", "#7cc4ff"]];
   return [[0, cat.labels[0] || "", "#7cc4ff"]];
 }
+function trophiesHTML(list) {
+  if (!Array.isArray(list) || !list.length) return "";
+  const won = list.filter(t => /winner|champion/i.test(t.place || ""));
+  const other = list.filter(t => !won.includes(t));
+  const year = new Date().getFullYear();
+  const recent = won.filter(t => String(t.season).includes(String(year)) || String(t.season).includes(String(year - 1)));
+  const by = new Map();
+  for (const t of won) { const k = `${t.league}|${t.country || ""}`; by.set(k, [...(by.get(k) || []), t.season]); }
+  const fr = p => /winner/i.test(p) ? "Vainqueur" : /2nd|runner/i.test(p) ? "Finaliste" : p;
+  return `<div class="glass" style="padding:14px;margin-bottom:14px">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px"><b style="font-size:17px">🏆 Palmarès</b><span class="chip">${won.length} titre${won.length > 1 ? "s" : ""}${recent.length ? ` · ${recent.length} récemment` : ""}</span></div>
+    <div class="kv">${[...by].sort((a, b) => b[1].length - a[1].length).map(([k, seasons]) => { const [lg, c] = k.split("|");
+      return `<div><small>${esc(c)}</small><b>${seasons.length > 1 ? seasons.length + "× " : ""}${esc(lg)}</b><div class="faint" style="font-size:12px;margin-top:3px">${esc(seasons.join(", "))}</div></div>`; }).join("")}</div>
+    ${other.length ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-size:13px">Autres podiums (${other.length})</summary><div class="note">${other.map(t => `${esc(fr(t.place))} · ${esc(t.league)} ${esc(t.season)}`).join("<br>")}</div></details>` : ""}</div>`;
+}
 const NAT_COMP = /world cup|coupe du monde|nations|friendl|amical|euro\b|european championship|qualif|copa am|africa cup|afcon|asian cup|gold cup|international/i;
 const isNational = r => COUNTRIES.has(norm(r.team)) || NAT_COMP.test(r.league || "");
 function careerSummary(cat) {
@@ -719,7 +735,7 @@ function careerSummary(cat) {
   return `<div class="glass" style="padding:14px;margin-bottom:14px"><div class="kv">${tiles.map(([k, v]) => `<div><small>${k}</small><b style="font-size:24px">${Math.round(v)}</b></div>`).join("")}</div>
     <div class="twrap" style="margin-top:12px"><table><thead><tr><th class="l">Équipe</th><th>Saisons</th><th>Matchs</th><th>Buts</th><th>Passes</th></tr></thead><tbody>
     ${[...byTeam.values()].sort((a, b) => b.g - a.g).map(v => `<tr><td class="l">${esc(v.team)}${v.nat ? " 🏳️" : ""}</td><td>${v.seasons.size}</td><td>${Math.round(v.m)}</td><td class="b">${Math.round(v.g)}</td><td>${Math.round(v.a)}</td></tr>`).join("")}</tbody></table></div>
-    <p class="note" style="margin:10px 2px 0">Totaux calculés sur les saisons que publie la source. Trophées et palmarès : non fournis par la source gratuite.</p></div>`;
+    <p class="note" style="margin:10px 2px 0">Totaux calculés sur les saisons que publie la source.</p></div>`;
 }
 function seasonChart(cat) {
   const metrics = pickMetrics(cat);
@@ -771,15 +787,16 @@ async function renderPlayer(s, l, id) {
     <div class="glass" style="padding:14px;margin-top:14px"><div class="kv">${info.map(([k, v]) => `<div><small>${k}</small><b>${esc(v)}</b></div>`).join("")}</div></div>
     <div id="pStats" style="margin-top:14px">${skeleton(3)}</div>`;
   try {
-    const cats = parseStats(await API.athleteStats(s, l, id));
+    const statsRaw = await API.athleteStats(s, l, id);
+    const cats = parseStats(statsRaw);
     if (!alive(my)) return;
     if (!cats.length) throw new Error("vide");
     const main = cats[0];
-    $("#pStats").innerHTML = `${careerSummary(main)}${seasonChart(main)}
+    $("#pStats").innerHTML = `${careerSummary(main)}${trophiesHTML(statsRaw.trophies)}${seasonChart(main)}
       ${cats.slice(0, 3).map(cat => `<div class="glass" style="padding:4px;margin-top:14px"><div class="gname">${esc(cat.name)}</div><div class="twrap"><table><thead><tr><th class="l">Saison</th><th class="l">Équipe</th>${cat.labels.map(x => `<th>${esc(x)}</th>`).join("")}</tr></thead><tbody>
         ${[...cat.rows].reverse().map(r => `<tr><td class="l">${esc(r.season)}</td><td class="l">${esc(r.team || r.league)}</td>${r.stats.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}
         ${cat.totals.length ? `<tr><td class="l b">Total</td><td></td>${cat.totals.map(v => `<td class="b">${esc(v)}</td>`).join("")}</tr>` : ""}</tbody></table></div></div>`).join("")}
-      <p class="note">Statistiques telles que fournies par ESPN (abréviations d'origine). Buts de la tête, coups francs, pied gauche ou droit, doublés, triplés, palmarès et valeur marchande ne figurent pas dans cette source.</p>`;
+      <p class="note">MJ matchs joués · B buts · PD passes décisives · Min minutes · CJ / CR cartons · Pen penalties marqués. Source : ${esc(SOURCE)}.</p>`;
   } catch {
     if (!alive(my)) return;
     $("#pStats").innerHTML = emptyBox("📈", "Statistiques détaillées indisponibles", "La source ne les publie pas pour ce joueur.");
@@ -894,6 +911,11 @@ const POS_SIDE = ab => { const a = String(ab || "").toUpperCase(); return /^L/.t
 function lineupLines(roster, formation) {
   const xi = roster.filter(p => p.starter);
   if (xi.length < 7) return null;
+  if (xi.every(p => /^\d+:\d+$/.test(p.grid || ""))) { // grille officielle « ligne:colonne », colonne 1 = côté gauche de l'équipe
+    const rows = {};
+    xi.forEach(p => { const [rw, cl] = p.grid.split(":").map(Number); (rows[rw] ||= []).push([cl, p]); });
+    return Object.keys(rows).map(Number).sort((a, b) => a - b).map(k => rows[k].sort((a, b) => a[0] - b[0]).map(x => x[1]));
+  }
   const ab = p => p.position?.abbreviation;
   const sorted = [...xi].sort((a, b) => POS_RANK(ab(a)) - POS_RANK(ab(b)) || (a.formationPlace || 0) - (b.formationPlace || 0));
   let sizes = String(formation || "").split("-").map(Number).filter(n => n > 0);
@@ -1105,7 +1127,7 @@ function parseSearch(d) {
     const s = sportOf(uid);
     const a = uid.match(/~a:(\d+)/)?.[1], t = uid.match(/~t:(\d+)/)?.[1];
     if (a || /player|athlete/.test(c._type)) out.players.push({ id: a || c.id, n: name, img, sub: c.subtitle || c.description || "", s, l: c.defaultLeagueSlug || "x" });
-    else if (t || /team/.test(c._type)) out.teams.push({ id: t || c.id, n: name, logo: img, sub: c.subtitle || c.description || "", s, l: c.defaultLeagueSlug || idx.t[t || c.id]?.l || "auto" });
+    else if (t || /team/.test(c._type)) out.teams.push({ id: t || c.id, n: name, logo: img, sub: c.subtitle || c.description || "", s, l: c.defaultLeagueSlug || idx.t[t || c.id]?.l || "auto", nat: !!c.national });
   }
   out.players = out.players.filter(p => p.id); out.teams = out.teams.filter(t => t.id);
   return out;
@@ -1140,7 +1162,7 @@ async function doSearch(q) {
     const byScore = (a, b) => fuzzy(q, b.n) - fuzzy(q, a.n);
     const teams = [...lt.map(t => ({ id: t.id, n: t.n, logo: t.logo, sub: findComp(t.s, t.l)?.n || "", s: t.s, l: t.l })), ...(remote?.teams || [])].filter((t, i, a) => a.findIndex(x => String(x.id) === String(t.id)) === i).sort(byScore);
     const players = [...lp.map(p => ({ id: p.id, n: p.n, img: p.img, sub: p.tn, s: p.s, l: p.l })), ...(remote?.players || [])].filter((p, i, a) => a.findIndex(x => String(x.id) === String(p.id)) === i).sort(byScore);
-    const nat = teams.filter(t => COUNTRIES.has(norm(t.n))), clubs = teams.filter(t => !COUNTRIES.has(norm(t.n)));
+    const nat = teams.filter(t => t.nat || COUNTRIES.has(norm(t.n))), clubs = teams.filter(t => !(t.nat || COUNTRIES.has(norm(t.n))));
     const sec = (title, arr, fn) => arr.length ? `<div class="sec"><h2>${title}</h2><span class="chip">${arr.length}</span></div><div class="grid">${arr.slice(0, 12).map(fn).join("")}</div>` : "";
     const tTile = t => `<div class="tile glass press" role="link" tabindex="0" data-href="#/team/${t.s}/${esc(t.l || "auto")}/${t.id}" data-remember="1"><span class="badge">${logo({ id: t.id, logo: t.logo, abbreviation: idx.t[t.id]?.a || t.n })}</span><span class="grow"><div class="t1 ellip">${esc(t.n)}</div><div class="t2 ellip">${esc(t.sub || "")}</div></span>${starBtn("teams", { id: String(t.id), s: t.s, l: t.l, name: t.n, logo: t.logo || "" }, isFav("teams", t.id))}</div>`;
     box.innerHTML = sec("Joueurs", players, p => `<div class="tile glass press" role="link" tabindex="0" data-href="#/player/${p.s}/${esc(p.l || "x")}/${p.id}" data-remember="1"><span class="badge round">${face(p.img, p.n, "ph-img")}</span><span class="grow"><div class="t1 ellip">${esc(p.n)}</div><div class="t2 ellip">${esc(p.sub || "")}</div></span>${starBtn("players", { id: String(p.id), s: p.s, l: p.l || "x", name: p.n, img: p.img || "", teamId: idx.p[p.id]?.tid || "" }, isFav("players", p.id))}</div>`)
@@ -1199,7 +1221,7 @@ async function renderProfile() {
     </div>
     <div class="sec"><h2>Données</h2></div>
     <div class="glass set">
-      <div class="it"><div class="grow">Mode<small>${DEMO ? "Démo : matchs, joueurs et scores fictifs pour tester l'app (aucune source réelle joignable ici)" : PROXY ? "Serveur Tribune connecté : cache partagé et notifications push" : "Autonome : données lues directement chez ESPN"}</small></div><span class="chip">${DEMO ? "Démo" : PROXY ? "Serveur" : "Autonome"}</span></div>
+      <div class="it"><div class="grow">Mode<small>${DEMO ? "Démo : matchs, joueurs et scores fictifs pour tester l'app (aucune source réelle joignable ici)" : PROXY ? `Serveur Tribune connecté · source ${SOURCE} · notifications push` : "Autonome : données lues directement chez ESPN"}</small></div><span class="chip">${DEMO ? "Démo" : PROXY ? "Serveur" : "Autonome"}</span></div>
       <div class="it"><div class="grow">Vider le cache<small>${mem.size} réponses en mémoire · ${Object.keys(idx.t).length} clubs et ${Object.keys(idx.p).length} joueurs indexés</small></div><button class="btn press" data-act="clearCache">Vider</button></div>
       <div class="it"><div class="grow">Réinitialiser mes favoris</div><button class="btn press" data-act="resetFavs">Réinitialiser</button></div>
     </div>
@@ -1366,7 +1388,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { lo
 (async function boot() {
   applySettings();
   if (location.protocol.startsWith("http")) {
-    try { const r = await fetch("/api/health", { cache: "no-store" }); PROXY = r.ok && (await r.json()).ok === true; } catch { PROXY = false; }
+    try { const r = await fetch("/api/health", { cache: "no-store" }); const h = r.ok ? await r.json() : {}; PROXY = h.ok === true; if (h.source) SOURCE = h.source; } catch { PROXY = false; }
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("sw.js").then(async reg => {
         const sub = await reg.pushManager?.getSubscription?.();
@@ -1385,6 +1407,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) { lo
     } catch { DEMO = true; }
   }
   $("#demoBar").classList.toggle("hidden", !DEMO);
+  $(".foot").textContent = DEMO ? "Mode démo : données fictives." : `Données : ${SOURCE}. Heures à l'heure de ton appareil.`;
   route(true);
   setTimeout(() => localWatch().catch(() => {}), DEMO ? 1500 : 4000);
   setInterval(() => { if (!document.hidden) localWatch().catch(() => {}); }, REFRESH);

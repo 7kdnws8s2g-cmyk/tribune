@@ -50,6 +50,13 @@ test/              tests automatiques
 - **Notifications** : le serveur compare chaque tableau de scores au précédent, repère l'événement, trouve les appareils concernés par leurs favoris et préférences, puis envoie. Anti-spam : 5 alertes par minute maximum, regroupées au-delà.
 - **Vie privée** : favoris et réglages restent sur l'appareil. Le serveur ne reçoit que l'abonnement push, les favoris et les préférences d'alerte, sans nom ni e-mail.
 
+## Source des données : API-Football
+
+Avec une clé API-Football (compte sur dashboard.api-football.com), le serveur utilise cette source pour le football :
+logos officiels, scores en direct, compositions placées selon la grille officielle, effectifs avec photos, carrière saison par saison et palmarès.
+Renseigne la clé dans la variable d'environnement `APIFOOTBALL_KEY` du service Render (jamais dans le code).
+Sans clé, l'app reste sur ESPN. L'offre gratuite d'API-Football (100 requêtes par jour) suffit pour essayer ; pour suivre les matchs en direct toute la journée, il faut l'offre Pro.
+
 ## Ce que la source gratuite ne fournit pas
 
 Rien n'est inventé : ces informations ne s'affichent pas faute de source. Les fiches le signalent.
